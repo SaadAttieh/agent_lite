@@ -3,7 +3,7 @@ name = "agent_lite"
 version = "0.1.0"
 description = ""
 authors = ["Saad Attieh <saad@smartrev.ai>"]
-readme = "README.md"
+readme = "readme.md"
 include = ["agent_lite/py.typed"]
 
 [tool.poetry.dependencies]
