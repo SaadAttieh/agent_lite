@@ -35,7 +35,23 @@ If you want control, a library that is small enough to have a quick read through
 - BufferedMemory strategies provided, auto drop old messages, auto summarise old messages.
 - Example postgres Chat History implementation provided
 
-## Usage
+# Usage
+
+## Mini example:
+```python
+    chat_history = InMemmoryChatHistory()
+    memory = UnlimitedMemory(chat_history=chat_history)
+    llm = OpenAILLM(api_key=os.environ["OPENAI_API_KEY"], model="gpt-4-turbo-preview")
+    agent = Agent(
+        system_prompt="You are a helpful agent.",
+        memory=memory,
+        tools=[]
+    )
+    response = await agent.submit_message("Hello")
+    print(response.final_response)
+```
+
+## Complete example:
 
 Here's an example of how to use agent_lite to build an agent with two tools: `GetCurrentTimeTool` and `GetBitcoinPriceTool`.
 
