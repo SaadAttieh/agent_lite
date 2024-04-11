@@ -88,7 +88,6 @@ async def main():
         llm=llm,
     )
 
-
     response = await agent.submit_message("What is the time in Marbella?")
     print(response.final_response)
     # output: The current time in Marbella is Friday, 29 March 2024, 12:56:54.
@@ -97,6 +96,7 @@ async def main():
     response = await agent.submit_message("What is the price of Bitcoin in GBP?")
     print(response.final_response)
     # output: The current price of Bitcoin in British Pound Sterling (GBP) is £55,628.76.
+
 
 if __name__ == "__main__":
     asyncio.run(main())

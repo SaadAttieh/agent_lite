@@ -156,9 +156,19 @@ async def main():
     print(response.final_response)
     # output: The current price of Bitcoin in British Pound Sterling (GBP) is £55,628.76.
 
+
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+*Streaming responses handled*
+```python
+    response = await agent.submit_message_and_stream_response("What is the time in Marbella?")
+    async for message in response.final_response_stream:
+        print(message, end="")
+    print()
+
+````
 
 ## License
 

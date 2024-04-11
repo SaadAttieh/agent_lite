@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from typing import AsyncIterator
 
 from openai import AsyncOpenAI
 from openai._types import NOT_GIVEN
 from openai.types.chat import (
+    ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCall,
     ChatCompletionToolParam,
@@ -15,6 +17,8 @@ from agent_lite.core import (
     LLMResponse,
     LLMUsage,
     Message,
+    StreamingAssistantMessage,
+    StreamingLLMResponse,
     SystemMessage,
     ToolInvokation,
     ToolInvokationMessage,
@@ -64,6 +68,68 @@ class OpenAILLM(BaseLLM):
             ),
             llm_usage,
         )
+
+    async def run_stream(
+        self, messages: list[Message], tools: list[BaseTool]
+    ) -> StreamingLLMResponse:
+        encoded_messages = OpenAILLM.encode_messages(messages)
+        encoded_tools = OpenAILLM.encode_tools(tools)
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=encoded_messages,
+            tools=encoded_tools or NOT_GIVEN,
+            response_format=(
+                {"type": "json_object"} if self.encourage_json_response else NOT_GIVEN
+            ),
+            stream=True,
+        )
+        async for message in response:
+            if message.choices[0].delta.tool_calls:
+                return await self._parse_streamed_tool_invokation_message(
+                    message, response
+                )
+            else:
+                return await self._stream_assistant_response(message, response)
+        return await self._stream_assistant_response(None, response)
+
+    async def _parse_streamed_tool_invokation_message(
+        self,
+        first_message: ChatCompletionChunk,
+        response: AsyncIterator[ChatCompletionChunk],
+    ) -> ToolInvokationMessage:
+        tool_calls: list[ToolInvokation] = []
+        async for chunk in repair_iterator(first_message, response):
+            if not chunk.choices[0].delta.tool_calls:
+                continue
+            for delta_tool_call in chunk.choices[0].delta.tool_calls:
+                if delta_tool_call.index >= len(tool_calls):
+                    tool_calls.extend(
+                        ToolInvokation(id="", tool_name="", tool_params="")
+                        for _ in range(delta_tool_call.index + 1 - len(tool_calls))
+                    )
+                if delta_tool_call.id:
+                    tool_calls[delta_tool_call.index].id += delta_tool_call.id
+                if delta_tool_call.function and delta_tool_call.function.name:
+                    tool_calls[
+                        delta_tool_call.index
+                    ].tool_name += delta_tool_call.function.name
+                if delta_tool_call.function and delta_tool_call.function.arguments:
+                    tool_calls[
+                        delta_tool_call.index
+                    ].tool_params += delta_tool_call.function.arguments
+        return ToolInvokationMessage(tools=tool_calls)
+
+    async def _stream_assistant_response(
+        self,
+        first_message: ChatCompletionChunk | None,
+        response: AsyncIterator[ChatCompletionChunk],
+    ) -> StreamingAssistantMessage:
+        async def stream_messages() -> AsyncIterator[str]:
+            async for message in repair_iterator(first_message, response):
+                if message.choices[0].delta.content:
+                    yield message.choices[0].delta.content
+
+        return StreamingAssistantMessage(internal_stream=stream_messages())
 
     @staticmethod
     def encode_messages(
@@ -125,3 +191,12 @@ class OpenAILLM(BaseLLM):
             tool_name=tool_call.function.name,
             tool_params=tool_call.function.arguments,
         )
+
+
+async def repair_iterator(
+    first_item: ChatCompletionChunk | None, iterator: AsyncIterator[ChatCompletionChunk]
+) -> AsyncIterator[ChatCompletionChunk]:
+    if first_item:
+        yield first_item
+    async for item in iterator:
+        yield item

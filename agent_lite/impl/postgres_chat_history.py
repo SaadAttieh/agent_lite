@@ -1,7 +1,7 @@
 #
 # requires installation of sqlalchemy and asyncpg
 from dataclasses import dataclass
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 if TYPE_CHECKING:
     from sqlalchemy import (
@@ -52,7 +52,6 @@ class PostgresChatHistory(BaseChatHistory):
         )
 
     async def add_message(self, message: Message) -> None:
-
         new_history_item = AgentConversationHistory(
             session_id=self.session_id,
             role=message.message_type(),

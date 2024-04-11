@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, List, Type
+from typing import Any, AsyncIterator, List, Type
 
 from pydantic import BaseModel, Field
 
@@ -80,12 +80,24 @@ class ToolResponseMessage(Message):
         return "tool_response"
 
 
+class StreamingAssistantMessage(AssistantMessage):
+    internal_stream: AsyncIterator[str]
+    content: str = ""
+
+    async def stream(self) -> AsyncIterator[str]:
+        async for chunk in self.internal_stream:
+            self.content += chunk
+            yield chunk
+
+
 class LLMUsage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
 
 
 LLMResponse = tuple[AssistantMessage | ToolInvokationMessage, LLMUsage | None]
+
+StreamingLLMResponse = ToolInvokationMessage | StreamingAssistantMessage
 
 
 class NoArgs(BaseModel):
@@ -146,6 +158,12 @@ class BaseLLM(ABC):
     @abstractmethod
     async def run(self, messages: list[Message], tools: list[BaseTool]) -> LLMResponse:
         pass
+
+    # define abstract method run_stream with default to raise nontimplementederror
+    async def run_stream(
+        self, messages: list[Message], tools: list[BaseTool]
+    ) -> StreamingLLMResponse:
+        raise NotImplementedError()
 
 
 class BaseChatHistory(ABC):
