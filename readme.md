@@ -168,7 +168,36 @@ if __name__ == "__main__":
         print(message, end="")
     print()
 
-````
+
+*Tool direct responses*
+```python
+# We will define a tool that forces the agent to respond directly with the result of the tool rather than processing it through the LLM
+# tools can always return a ToolDirectResponse or a StreamingToolDirectResponse.
+# These will always be coerced into the appropriate response for agent.submit_message(...) or agent.submit_message_and_stream_response(...)
+from agent_lite.core import (
+    ...,
+    StreamingToolDirectResponse,
+    ToolDirectResponse,
+    ...,
+)
+
+class GetCurrentTimeTool(BaseTool):
+    name: str = "get_current_time"
+    description: str = "Get the current time in the specified timezone"
+    args_schema: Type[BaseModel] = GetCurrentDateTimeToolArgs
+    description
+
+    async def _arun(
+        self, args: GetCurrentDateTimeToolArgs
+    ) -> ToolDirectResponse | StreamingToolDirectResponse:
+        now = datetime.now(ZoneInfo(args.timezone))
+        # return day name along with date and time
+        return ToolDirectResponse(content=now.strftime("%A, %d %B %Y %H:%M:%S"))
+
+
+```
+
+
 
 ## License
 
