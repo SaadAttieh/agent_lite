@@ -89,13 +89,29 @@ class StreamingAssistantMessage(AssistantMessage):
             self.content += chunk
             yield chunk
 
+    async def consume_stream(self) -> str:
+        async for _ in self.stream():
+            pass
+        return self.content
+
+
+class ToolDirectResponse(AssistantMessage):
+    pass
+
+
+class StreamingToolDirectResponse(StreamingAssistantMessage):
+    pass
+
 
 class LLMUsage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
 
 
-LLMResponse = tuple[AssistantMessage | ToolInvokationMessage, LLMUsage | None]
+LLMResponse = tuple[
+    AssistantMessage | ToolInvokationMessage | StreamingAssistantMessage,
+    LLMUsage | None,
+]
 
 StreamingLLMResponse = ToolInvokationMessage | StreamingAssistantMessage
 
