@@ -26,7 +26,6 @@ def _number_messages_to_drop(
 ) -> DropMessageStats:
     encoding = tiktoken.encoding_for_model(model)
     number_tokens = sum(len(encoding.encode_ordinary(m)) for m in messages)
-    print(f"number_tokens: {number_tokens}")
     if number_tokens <= max_tokens:
         return DropMessageStats(
             original_number_messages=len(messages),
