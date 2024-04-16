@@ -85,8 +85,7 @@ class AgentRunIntermediate(BaseModel):
 class LLMRunFunc(Protocol):
     async def __call__(
         self, messages: list[Message], tools: list[BaseTool]
-    ) -> LLMResponse:
-        ...
+    ) -> LLMResponse: ...
 
 
 @dataclass
@@ -111,7 +110,7 @@ class Agent:
 
         await self.memory.add_message(AssistantMessage(content=final_response))
 
-        return AgentRun(
+        agent_run = AgentRun(
             model=agent_run_intermediate.model,
             prompt_tokens=agent_run_intermediate.prompt_tokens,
             completion_tokens=agent_run_intermediate.completion_tokens,
@@ -122,6 +121,9 @@ class Agent:
             final_response=final_response,
             final_message_chain=agent_run_intermediate.final_message_chain,
         )
+        print("Run complete")
+        print(agent_run)
+        return agent_run
 
     async def submit_message_and_stream_response(
         self,
@@ -136,7 +138,7 @@ class Agent:
             input_message, run_func
         )
         await self.memory.add_message(UserMessage(content=input_message))
-        return StreamingAgentRun(
+        agent_run = StreamingAgentRun(
             model=agent_run_intermediate.model,
             number_llm_invocations=agent_run_intermediate.number_llm_invocations,
             total_time_till_stream_start=agent_run_intermediate.total_time,
@@ -147,6 +149,9 @@ class Agent:
             ),
             final_message_chain=agent_run_intermediate.final_message_chain,
         )
+        print("Run complete")
+        print(agent_run)
+        return agent_run
 
     async def _submit_message_helper(
         self, input_message: str, run_func: LLMRunFunc
