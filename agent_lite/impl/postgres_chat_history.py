@@ -42,7 +42,7 @@ class PostgresChatHistory(BaseChatHistory):
     url: str
     session_id: str
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # replace protocol with postgres+asyncpg for asyncpg driver
         async_url = self.url.replace("postgresql://", "postgresql+asyncpg://")
         async_engine = create_async_engine(async_url, pool_pre_ping=True)
