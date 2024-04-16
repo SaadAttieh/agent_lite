@@ -271,4 +271,4 @@ class Agent:
             or isinstance(tool_response, str)
         ):
             return tool_response
-        return json.dumps(tool_response, indent=2)
+        return json.dumps(tool_response)
