@@ -8,11 +8,9 @@ include = ["agent_lite/py.typed"]
 
 [tool.poetry.dependencies]
 python = "^3.10.0"
-anthropic = "^0.21.3"
+anthropic = "^0.25.6"
 openai = "^1.14.2"
 tiktoken = "^0.6.0"
-pydantic-xml = "^2.9.0"
-xmltodict = "^0.13.0"
 pydantic = "^2.6.4"
 httpx = "^0.27.0"
 

@@ -13,9 +13,9 @@ from zoneinfo import ZoneInfo
 from agent_lite.core import BaseTool, InMemmoryChatHistory, UnlimitedMemory
 from agent_lite.core.agent import Agent
 
-# now we choose some specific implementations, in this case the OpenAILLM
+# now we choose some specific implementations, in this case the AnthropicLLM
 # You also have choices for different memory strategies, and different storage strategies for chat history
-from agent_lite.impl.llms.openai_llm import OpenAILLM
+from agent_lite.impl.llms.anthropic_llm import AnthropicLLM
 
 # ----------
 # We will define two tools:
@@ -77,9 +77,11 @@ async def main():
     # from agent_lite.impl.bufferred_memory import BufferedMemory, BufferedMemoryWithSummarizer
 
     # Choose an LLM:
-    llm = OpenAILLM(api_key=os.environ["OPENAI_API_KEY"], model="gpt-4-turbo")
+    llm = AnthropicLLM(
+        api_key=os.environ["ANTHROPIC_API_KEY"], model="claude-3-opus-20240229"
+    )
     # Other options:
-    # from agent_lite.impl.llms.anthropic_llm import AnthropicLLM
+    # from agent_lite.impl.llms.openai_llm import OpenAILLM
 
     agent = Agent(
         system_prompt="You are a helpful agent.",

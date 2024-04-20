@@ -77,9 +77,7 @@ async def main():
     # from agent_lite.impl.bufferred_memory import BufferedMemory, BufferedMemoryWithSummarizer
 
     # Choose an LLM:
-    llm = OpenAILLM(api_key=os.environ["OPENAI_API_KEY"], model="gpt-4-turbo-preview")
-    # Other options:
-    # from agent_lite.impl.anthropic_llm import AnthropicLLM
+    llm = OpenAILLM(api_key=os.environ["OPENAI_API_KEY"], model="gpt-4-turbo")
 
     agent = Agent(
         system_prompt="You are a helpful agent.",
