@@ -116,7 +116,14 @@ class AnthropicLLM(BaseLLM):
                 response_text = (
                     response_text[:start_thinking] + response_text[end_thinking:]
                 )
-
+            if (
+                self.remove_thinking_messages
+                and "<answer>" in response_text
+                and "</answer>" in response_text
+            ):
+                start_answer = response_text.find("<answer>") + len("<answer>")
+                end_answer = response_text.find("</answer>")
+                response_text = response_text[start_answer:end_answer]
             return (AssistantMessage(content=response_text), llm_usage)
 
     @staticmethod
