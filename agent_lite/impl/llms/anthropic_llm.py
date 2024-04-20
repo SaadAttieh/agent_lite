@@ -29,6 +29,9 @@ JSON_PROMPT = """You must output a valid JSON object.\n"""
 class AnthropicLLM(BaseLLM):
     api_key: str
     encourage_json_response: bool = False
+    remove_thinking_messages: bool = (
+        True  # remove the <thinking> messages from the response
+    )
 
     def __post_init__(self) -> None:
         self.client = anthropic.AsyncAnthropic(
@@ -103,6 +106,17 @@ class AnthropicLLM(BaseLLM):
 
         else:
             response_text = response.text
+            if (
+                self.remove_thinking_messages
+                and "<thinking>" in response_text
+                and "</thinking>" in response_text
+            ):
+                start_thinking = response_text.find("<thinking>")
+                end_thinking = response_text.find("</thinking>") + len("</thinking>")
+                response_text = (
+                    response_text[:start_thinking] + response_text[end_thinking:]
+                )
+
             return (AssistantMessage(content=response_text), llm_usage)
 
     @staticmethod
