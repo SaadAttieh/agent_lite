@@ -221,7 +221,7 @@ class BaseMemory(ABC):
         pass
 
 
-class InMemmoryChatHistory(BaseChatHistory, BaseModel):
+class InMemoryChatHistory(BaseChatHistory, BaseModel):
     messages: List[Message] = Field(default_factory=list)
 
     async def add_message(self, message: Message) -> None:
@@ -241,6 +241,10 @@ class InMemmoryChatHistory(BaseChatHistory, BaseModel):
 
     async def clear(self) -> None:
         self.messages = []
+
+
+class InMemmoryChatHistory(InMemoryChatHistory):
+    pass
 
 
 class UnlimitedMemory(BaseMemory):

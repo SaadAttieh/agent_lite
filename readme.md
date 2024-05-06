@@ -1,4 +1,4 @@
-# agent_lite
+## agent_lite
 
 A minified version of the Langchain library, designed to be small enough to easily read and edit but still provide a type-safe interface to building Agents on top of LLMs.
 
@@ -11,8 +11,20 @@ But, it's huge, and learning how to provide the correct combination of keyword a
 On the other end, the LLM APIs are quite low level, you need to parse tool invokations, track agent responses, tool outputs and user messages and most of this is done using untyped python dictionaries.
 
 If you want control, a library that is small enough to have a quick read through and edit, but still retaining a typesafe binding from python functions to agent tools, agent_lite is a Decent enough compromise.
-
 # Features:
+
+## How it works:
+
+1. Define your tools (python functions that take Pydantic models as inputs).
+1. Choose how to store the conversation with the agent (in-memory, database,)
+1. Decide if you need smart memory mamagement if token context sizes are limited or not.
+1. Define a system prompt.
+1. Submit a message.
+    *  The agent will invoke one or more of your python tools if necessary then produce a final response.
+    * The final response can be streamed for lower latency.
+    * The conversation is updated and stored according to your chosen strategy (in-memory, database, etc.).
+
+
 
 - The library is split into:
 - `core` (defining all the required types and interfaces) and
@@ -39,13 +51,11 @@ If you want control, a library that is small enough to have a quick read through
 
 ## Mini example:
 ```python
-    chat_history = InMemmoryChatHistory()
-    memory = UnlimitedMemory(chat_history=chat_history)
-    llm = OpenAILLM(api_key=os.environ["OPENAI_API_KEY"], model="gpt-4-turbo-preview")
+    # Choose an LLM:
+    llm = OpenAILLM(api_key=os.environ["OPENAI_API_KEY"], model="gpt-4-turbo")
     agent = Agent(
         system_prompt="You are a helpful agent.",
-        memory=memory,
-        tools=[]
+        llm=llm,
     )
     response = await agent.submit_message("Hello")
     print(response.final_response)
@@ -68,7 +78,7 @@ import httpx
 from pydantic import BaseModel, Field
 from zoneinfo import ZoneInfo
 
-from agent_lite.core import BaseTool, InMemmoryChatHistory, UnlimitedMemory
+from agent_lite.core import BaseTool, InMemoryChatHistory, UnlimitedMemory
 from agent_lite.core.agent import Agent
 
 # now we choose some specific implementations, in this case the OpenAILLM

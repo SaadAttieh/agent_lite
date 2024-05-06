@@ -10,7 +10,7 @@ import httpx
 from pydantic import BaseModel, Field
 from zoneinfo import ZoneInfo
 
-from agent_lite.core import BaseTool, InMemmoryChatHistory, UnlimitedMemory
+from agent_lite.core import BaseTool, InMemoryChatHistory, UnlimitedMemory
 from agent_lite.core.agent import Agent
 
 # now we choose some specific implementations, in this case the OpenAILLM
@@ -67,7 +67,7 @@ class GetBitcoinPriceTool(BaseTool):
 
 async def main():
     # choose a chat history
-    chat_history = InMemmoryChatHistory()
+    chat_history = InMemoryChatHistory()
     # Othe options:
     # from agent_lite.impl.postgres_chat_history import PostgresChatHistory
 

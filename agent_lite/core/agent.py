@@ -1,15 +1,15 @@
 import json
 import time
-from dataclasses import dataclass
 from typing import AsyncIterator, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agent_lite.core import (
     AssistantMessage,
     BaseLLM,
     BaseMemory,
     BaseTool,
+    InMemoryChatHistory,
     LLMResponse,
     Message,
     StreamingAssistantMessage,
@@ -18,6 +18,7 @@ from agent_lite.core import (
     ToolDirectResponse,
     ToolInvokationMessage,
     ToolResponseMessage,
+    UnlimitedMemory,
     UserMessage,
 )
 
@@ -89,12 +90,16 @@ class LLMRunFunc(Protocol):
         ...
 
 
-@dataclass
-class Agent:
+class Agent(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+
     system_prompt: str
     llm: BaseLLM
-    memory: BaseMemory
-    tools: list[BaseTool]
+    memory: BaseMemory = Field(
+        default_factory=lambda: UnlimitedMemory(chat_history=InMemoryChatHistory())
+    )
+    tools: list[BaseTool] = Field(default_factory=list)
     max_number_iterations: int | None = 30
 
     async def submit_message(self, input_message: str) -> AgentRun:

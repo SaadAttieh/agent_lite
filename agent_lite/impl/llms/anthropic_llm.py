@@ -77,23 +77,23 @@ class AnthropicLLM(BaseLLM):
             if response.usage
             else None
         )
-        response = response.content[-1]
+        message = response.content[-1]
 
-        if response.type == "tool_use":
+        if message.type == "tool_use":
             return (
                 ToolInvokationMessage(
                     tools=[
                         ToolInvokation(
-                            id=response.id,
-                            tool_name=response.name,
-                            tool_params=json.dumps(response.input),
+                            id=message.id,
+                            tool_name=message.name,
+                            tool_params=json.dumps(message.input),
                         )
                     ]
                 ),
                 llm_usage,
             )
         elif self.encourage_json_response:
-            response_text = response.text
+            response_text = message.text
             object_close = response_text.rfind("}")
             if object_close == -1:
                 raise ValueError(
@@ -105,7 +105,7 @@ class AnthropicLLM(BaseLLM):
             )
 
         else:
-            response_text = response.text
+            response_text = message.text
             if (
                 self.remove_thinking_messages
                 and "<thinking>" in response_text
