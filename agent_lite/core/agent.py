@@ -86,15 +86,14 @@ class AgentRunIntermediate(BaseModel):
 class LLMRunFunc(Protocol):
     async def __call__(
         self, messages: list[Message], tools: list[BaseTool]
-    ) -> LLMResponse:
-        ...
+    ) -> LLMResponse: ...
 
 
 class Agent(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    system_prompt: str
+    system_prompt: str | None
     llm: BaseLLM
     memory: BaseMemory = Field(
         default_factory=lambda: UnlimitedMemory(chat_history=InMemoryChatHistory())
@@ -163,8 +162,8 @@ class Agent(BaseModel):
         self, input_message: str, run_func: LLMRunFunc
     ) -> AgentRunIntermediate:
         conversation_history = await self.memory.get_messages()
-        messages = (
-            [SystemMessage(content=self.system_prompt)]
+        messages: list[Message] = (
+            ([SystemMessage(content=self.system_prompt)] if self.system_prompt else [])
             + conversation_history
             + [UserMessage(content=input_message)]
         )
