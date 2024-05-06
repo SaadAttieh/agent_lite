@@ -169,12 +169,17 @@ class AnthropicLLM(BaseLLM):
 
         async def stream_response(
             response: anthropic.AsyncMessageStreamManager[anthropic.AsyncMessageStream],
+            encourage_json_response: bool,
         ) -> AsyncIterator[str]:
+            if encourage_json_response:
+                yield "{"
             async with response as stream:
                 async for text in stream.text_stream:
                     yield text
 
-        return StreamingAssistantMessage(internal_stream=stream_response(response))
+        return StreamingAssistantMessage(
+            internal_stream=stream_response(response, self.encourage_json_response)
+        )
 
     @staticmethod
     def encode_messages(
