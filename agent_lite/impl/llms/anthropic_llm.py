@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from typing import AsyncIterator
 
 import anthropic
 from anthropic._types import NOT_GIVEN
@@ -15,6 +16,8 @@ from agent_lite.core import (
     LLMResponse,
     LLMUsage,
     Message,
+    StreamingAssistantMessage,
+    StreamingLLMResponse,
     SystemMessage,
     ToolInvokation,
     ToolInvokationMessage,
@@ -120,6 +123,58 @@ class AnthropicLLM(BaseLLM):
                 end_answer = response_text.find("</answer>")
                 response_text = response_text[start_answer:end_answer]
             return (AssistantMessage(content=response_text), llm_usage)
+
+    async def run_stream(
+        self, messages: list[Message], tools: list[BaseTool]
+    ) -> StreamingLLMResponse:
+        # due to lack of support of tools, we temporarily use the old interface.
+        from anthropic.types import (
+            MessageParam,
+        )
+
+        if tools:
+            raise ValueError(
+                "Anthropic LLM does not support tool invokations in stream mode. This is a limitation of the Anthropic API. Anthropic state that this is being worked on:\nhttps://docs.anthropic.com/claude/docs/tool-use"
+            )
+        # system message
+        system: str | None = None
+        first_message_index = 0
+        if isinstance(messages[0], SystemMessage):
+            system = messages[0].content
+            first_message_index = 1
+        messages = messages[first_message_index:]
+
+        # JSON mode
+        if self.encourage_json_response:
+            system = (system or "") + "\n\n" + JSON_PROMPT
+            messages = messages + [AssistantMessage(content="{")]
+
+        # Messages:
+        encoded_messages_orig = AnthropicLLM.encode_messages(messages)
+        encoded_messages: list[MessageParam] = []
+        for message in encoded_messages_orig:
+            encoded_messages.append(
+                {
+                    "role": message["role"],
+                    "content": message["content"],  # type: ignore
+                }
+            )
+
+        response = self.client.messages.stream(
+            max_tokens=4096,
+            model=self.model,
+            messages=encoded_messages,
+            system=system or NOT_GIVEN,
+        )
+
+        async def stream_response(
+            response: anthropic.AsyncMessageStreamManager[anthropic.AsyncMessageStream],
+        ) -> AsyncIterator[str]:
+            async with response as stream:
+                async for text in stream.text_stream:
+                    yield text
+
+        return StreamingAssistantMessage(internal_stream=stream_response(response))
 
     @staticmethod
     def encode_messages(
