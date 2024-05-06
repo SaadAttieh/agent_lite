@@ -39,11 +39,6 @@ class AnthropicLLM(BaseLLM):
         )
 
     async def run(self, messages: list[Message], tools: list[BaseTool]) -> LLMResponse:
-        if self.encourage_json_response and tools:
-            raise ValueError(
-                "Currently, the encourage_json_response option prompts Anthropic in a way that disallows the use of tools. This is a limitation of the current implementation of the encourage_json_response option. Please disable the encourage_json_response option if you want to use tools."
-            )
-
         # system message
         system: str | None = None
         first_message_index = 0
