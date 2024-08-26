@@ -1,6 +1,8 @@
+import base64
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, List, Type
+from enum import Enum
+from typing import IO, Any, AsyncIterator, List, Type
 
 from pydantic import BaseModel, Field
 
@@ -31,8 +33,49 @@ class Message(BaseModel):
         raise ValueError(f"Unknown message type: {message_type}")
 
 
+class ContentProperties(BaseModel):
+    cached: bool = Field(False, exclude=True)
+
+
+class TextContent(ContentProperties):
+    text: str
+
+
+class ImageFileType(str, Enum):
+    JPEG = "image/jpeg"
+    PNG = "image/png"
+    GIF = "image/gif"
+    WEBP = "image/webp"
+
+
+class ImageContent(ContentProperties):
+    encoded_data: str
+    file_type: ImageFileType
+
+    def encoding_type(self) -> str:
+        return "base64"
+
+    @staticmethod
+    def from_file(
+        file: IO[bytes], file_type: ImageFileType, cached: bool = False
+    ) -> "ImageContent":
+        data = file.read()
+        encoded_data = base64.b64encode(data).decode("utf-8")
+        return ImageContent(
+            encoded_data=encoded_data, file_type=file_type, cached=cached
+        )
+
+
+def to_file(self, file: IO[bytes]) -> None:
+    data = base64.b64decode(self.encoded_data)
+    file.write(data)
+
+
+Content = TextContent | ImageContent
+
+
 class UserMessage(Message):
-    content: str
+    content: str | list[Content]
 
     @classmethod
     def message_type(self) -> str:
@@ -40,7 +83,7 @@ class UserMessage(Message):
 
 
 class SystemMessage(Message):
-    content: str
+    content: str | list[Content]
 
     @classmethod
     def message_type(self) -> str:

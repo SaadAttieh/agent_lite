@@ -1,10 +1,12 @@
 from dataclasses import dataclass
-from typing import AsyncIterator
+from typing import AsyncIterator, Iterable, Union
 
 from openai import AsyncOpenAI
 from openai._types import NOT_GIVEN
 from openai.types.chat import (
     ChatCompletionChunk,
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartTextParam,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCall,
     ChatCompletionToolParam,
@@ -14,12 +16,15 @@ from agent_lite.core import (
     AssistantMessage,
     BaseLLM,
     BaseTool,
+    Content,
+    ImageContent,
     LLMResponse,
     LLMUsage,
     Message,
     StreamingAssistantMessage,
     StreamingLLMResponse,
     SystemMessage,
+    TextContent,
     ToolInvokation,
     ToolInvokationMessage,
     ToolResponseMessage,
@@ -137,9 +142,15 @@ class OpenAILLM(BaseLLM):
     ) -> list[ChatCompletionMessageParam]:
         def encode_message(message: Message) -> ChatCompletionMessageParam:
             if isinstance(message, SystemMessage):
-                return {"role": "system", "content": message.content}
+                return {
+                    "role": "system",
+                    "content": OpenAILLM.make_openai_system_message(message),
+                }
             elif isinstance(message, UserMessage):
-                return {"role": "user", "content": message.content}
+                return {
+                    "role": "user",
+                    "content": OpenAILLM.make_openai_message_content(message.content),
+                }
             elif isinstance(message, AssistantMessage):
                 return {"role": "assistant", "content": message.content}
             elif isinstance(message, ToolInvokationMessage):
@@ -191,6 +202,60 @@ class OpenAILLM(BaseLLM):
             tool_name=tool_call.function.name,
             tool_params=tool_call.function.arguments,
         )
+
+    @staticmethod
+    def make_openai_system_message(
+        system_message: SystemMessage,
+    ) -> Union[str, Iterable[Union[ChatCompletionContentPartTextParam]]]:
+        content = system_message.content
+        if isinstance(content, str):
+            return content
+
+        return [OpenAILLM.make_openai_text_block(c) for c in content]
+
+    @staticmethod
+    def make_openai_message_content(
+        content: str | list[Content],
+    ) -> Union[
+        str,
+        Iterable[
+            Union[
+                ChatCompletionContentPartTextParam, ChatCompletionContentPartImageParam
+            ]
+        ],
+    ]:
+        if isinstance(content, str):
+            return content
+        return [
+            (
+                OpenAILLM.make_openai_text_block(c)
+                if isinstance(c, TextContent)
+                else OpenAILLM.make_openai_image_block(c)
+            )
+            for c in content
+        ]
+
+    @staticmethod
+    def make_openai_text_block(
+        inner_content: Content,
+    ) -> ChatCompletionContentPartTextParam:
+        if not isinstance(inner_content, TextContent):
+            raise ValueError("Expected a text only content here.")
+        return {"text": inner_content.text, "type": "text"}
+
+    @staticmethod
+    def make_openai_image_block(
+        inner_content: Content,
+    ) -> ChatCompletionContentPartImageParam:
+        if not isinstance(inner_content, ImageContent):
+            raise ValueError("Expected an image only content here.")
+        assert inner_content.encoding_type() == "base64"
+        return {
+            "type": "image_url",
+            "image_url": {
+                "url": inner_content.encoded_data,
+            },
+        }
 
 
 async def repair_iterator(

@@ -1,31 +1,35 @@
 import json
 from dataclasses import dataclass
-from typing import AsyncIterator
+from typing import AsyncIterator, Iterable, Union
 
 import anthropic
 from anthropic._types import NOT_GIVEN
-from anthropic.types.beta.tools import (
-    ToolParam,
-    ToolsBetaMessageParam,
+from anthropic.lib.streaming import AsyncPromptCachingBetaMessageStreamManager
+from anthropic.types.beta.prompt_caching import (
+    PromptCachingBetaImageBlockParam,
+    PromptCachingBetaMessageParam,
+    PromptCachingBetaTextBlockParam,
+    PromptCachingBetaToolParam,
 )
 
 from agent_lite.core import (
     AssistantMessage,
     BaseLLM,
     BaseTool,
+    Content,
+    ImageContent,
     LLMResponse,
     LLMUsage,
     Message,
     StreamingAssistantMessage,
     StreamingLLMResponse,
     SystemMessage,
+    TextContent,
     ToolInvokation,
     ToolInvokationMessage,
     ToolResponseMessage,
     UserMessage,
 )
-
-JSON_PROMPT = """You must output a valid JSON object.\n"""
 
 
 @dataclass
@@ -43,16 +47,17 @@ class AnthropicLLM(BaseLLM):
 
     async def run(self, messages: list[Message], tools: list[BaseTool]) -> LLMResponse:
         # system message
-        system: str | None = None
+        system: Union[
+            str, Iterable[Union[PromptCachingBetaTextBlockParam]], None
+        ] = None
         first_message_index = 0
         if isinstance(messages[0], SystemMessage):
-            system = messages[0].content
+            system = AnthropicLLM.make_anthropic_system_message(messages[0])
             first_message_index = 1
         messages = messages[first_message_index:]
 
         # JSON mode
         if self.encourage_json_response:
-            system = (system or "") + "\n\n" + JSON_PROMPT
             messages = messages + [AssistantMessage(content="{")]
 
         encoded_tools = AnthropicLLM.encode_tools(tools)
@@ -60,7 +65,7 @@ class AnthropicLLM(BaseLLM):
         # Messages:
         encoded_messages = AnthropicLLM.encode_messages(messages)
 
-        response = await self.client.beta.tools.messages.create(
+        response = await self.client.beta.prompt_caching.messages.create(
             max_tokens=4096,
             model=self.model,
             messages=encoded_messages,
@@ -127,31 +132,27 @@ class AnthropicLLM(BaseLLM):
     async def run_stream(
         self, messages: list[Message], tools: list[BaseTool]
     ) -> StreamingLLMResponse:
-        # due to lack of support of tools, we temporarily use the old interface.
-        from anthropic.types import (
-            MessageParam,
-        )
-
         if tools:
             raise ValueError(
                 "Anthropic LLM does not support tool invokations in stream mode. This is a limitation of the Anthropic API. Anthropic state that this is being worked on:\nhttps://docs.anthropic.com/claude/docs/tool-use"
             )
         # system message
-        system: str | None = None
+        system: Union[
+            str, Iterable[Union[PromptCachingBetaTextBlockParam]], None
+        ] = None
         first_message_index = 0
         if isinstance(messages[0], SystemMessage):
-            system = messages[0].content
+            system = AnthropicLLM.make_anthropic_system_message(messages[0])
             first_message_index = 1
         messages = messages[first_message_index:]
 
         # JSON mode
         if self.encourage_json_response:
-            system = (system or "") + "\n\n" + JSON_PROMPT
             messages = messages + [AssistantMessage(content="{")]
 
         # Messages:
         encoded_messages_orig = AnthropicLLM.encode_messages(messages)
-        encoded_messages: list[MessageParam] = []
+        encoded_messages: list[PromptCachingBetaMessageParam] = []
         for message in encoded_messages_orig:
             encoded_messages.append(
                 {
@@ -160,7 +161,7 @@ class AnthropicLLM(BaseLLM):
                 }
             )
 
-        response = self.client.messages.stream(
+        response = self.client.beta.prompt_caching.messages.stream(
             max_tokens=4096,
             model=self.model,
             messages=encoded_messages,
@@ -168,7 +169,7 @@ class AnthropicLLM(BaseLLM):
         )
 
         async def stream_response(
-            response: anthropic.AsyncMessageStreamManager[anthropic.AsyncMessageStream],
+            response: AsyncPromptCachingBetaMessageStreamManager,
             encourage_json_response: bool,
         ) -> AsyncIterator[str]:
             if encourage_json_response:
@@ -184,14 +185,19 @@ class AnthropicLLM(BaseLLM):
     @staticmethod
     def encode_messages(
         messages: list[Message],
-    ) -> list[ToolsBetaMessageParam]:
-        def encode_message(message: Message) -> ToolsBetaMessageParam:
+    ) -> list[PromptCachingBetaMessageParam]:
+        def encode_message(message: Message) -> PromptCachingBetaMessageParam:
             if isinstance(message, SystemMessage):
                 raise ValueError(
                     "System messages are not supported, Any initial system messages should have automatically been removed and moved to anthropic's api system parameter by this point."
                 )
             elif isinstance(message, UserMessage):
-                return {"role": "user", "content": message.content}
+                return {
+                    "role": "user",
+                    "content": AnthropicLLM.make_anthropic_message_content(
+                        message.content
+                    ),
+                }
             elif isinstance(message, AssistantMessage):
                 return {"role": "assistant", "content": message.content}
             elif isinstance(message, ToolInvokationMessage):
@@ -229,8 +235,8 @@ class AnthropicLLM(BaseLLM):
         return encoded_messages
 
     @staticmethod
-    def encode_tools(tools: list[BaseTool]) -> list[ToolParam]:
-        def encode_tool(tool: BaseTool) -> ToolParam:
+    def encode_tools(tools: list[BaseTool]) -> list[PromptCachingBetaToolParam]:
+        def encode_tool(tool: BaseTool) -> PromptCachingBetaToolParam:
             schema = tool.get_args_schema().model_json_schema()
 
             return {
@@ -243,9 +249,9 @@ class AnthropicLLM(BaseLLM):
 
     @staticmethod
     def group_encoded_messages_by_consecutive_role(
-        messages: list[ToolsBetaMessageParam],
-    ) -> list[ToolsBetaMessageParam]:
-        grouped_messages: list[ToolsBetaMessageParam] = []
+        messages: list[PromptCachingBetaMessageParam],
+    ) -> list[PromptCachingBetaMessageParam]:
+        grouped_messages: list[PromptCachingBetaMessageParam] = []
         for message in messages:
             if (
                 len(grouped_messages) == 0
@@ -266,3 +272,66 @@ class AnthropicLLM(BaseLLM):
 
                 grouped_messages[-1]["content"] += message["content"]
         return grouped_messages
+
+    @staticmethod
+    def make_anthropic_system_message(
+        system_message: SystemMessage,
+    ) -> Union[str, Iterable[Union[PromptCachingBetaTextBlockParam]]]:
+        content = system_message.content
+        if isinstance(content, str):
+            return content
+
+        return [AnthropicLLM.make_anthropic_text_block(c) for c in content]
+
+    @staticmethod
+    def make_anthropic_message_content(
+        content: str | list[Content],
+    ) -> Union[
+        str,
+        Iterable[
+            Union[PromptCachingBetaTextBlockParam, PromptCachingBetaImageBlockParam]
+        ],
+    ]:
+        if isinstance(content, str):
+            return content
+        return [
+            (
+                AnthropicLLM.make_anthropic_text_block(c)
+                if isinstance(c, TextContent)
+                else AnthropicLLM.make_anthropic_image_block(c)
+            )
+            for c in content
+        ]
+
+    @staticmethod
+    def make_anthropic_text_block(
+        inner_content: Content,
+    ) -> PromptCachingBetaTextBlockParam:
+        if not isinstance(inner_content, TextContent):
+            raise ValueError("Expected a text only content here.")
+        result: PromptCachingBetaTextBlockParam = {
+            "text": inner_content.text,
+            "type": "text",
+        }
+        if inner_content.cached:
+            result["cache_control"] = {"type": "ephemeral"}
+        return result
+
+    @staticmethod
+    def make_anthropic_image_block(
+        inner_content: Content,
+    ) -> PromptCachingBetaImageBlockParam:
+        if not isinstance(inner_content, ImageContent):
+            raise ValueError("Expected an image only content here.")
+        assert inner_content.encoding_type() == "base64"
+        result: PromptCachingBetaImageBlockParam = {
+            "type": "image",
+            "source": {
+                "data": inner_content.encoded_data,
+                "media_type": inner_content.file_type.value,
+                "type": "base64",
+            },
+        }
+        if inner_content.cached:
+            result["cache_control"] = {"type": "ephemeral"}
+        return result

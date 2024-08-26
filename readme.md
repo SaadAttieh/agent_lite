@@ -23,7 +23,7 @@ If you want control, a library that is small enough to have a quick read through
     *  The agent will invoke one or more of your python tools if necessary then produce a final response.
     * The final response can be streamed for lower latency.
     * The conversation is updated and stored according to your chosen strategy (in-memory, database, etc.).
-
+1. Supports text and image inputs and prompt caching for Anthropic's Claude.
 
 
 - The library is split into:

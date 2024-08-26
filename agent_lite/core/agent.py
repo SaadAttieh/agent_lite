@@ -10,6 +10,7 @@ from agent_lite.core import (
     BaseLLM,
     BaseMemory,
     BaseTool,
+    Content,
     InMemoryChatHistory,
     LLMResponse,
     Message,
@@ -31,7 +32,7 @@ class AgentRun(BaseModel):
     number_llm_invocations: int
     total_time: float
     llm_time: float
-    input_message: str
+    input_message: str | list[Content]
     final_response: str
     final_message_chain: list[Message]
 
@@ -79,7 +80,7 @@ class AgentRunIntermediate(BaseModel):
     number_llm_invocations: int
     total_time: float
     llm_time: float
-    input_message: str
+    input_message: str | list[Content]
     final_response: AssistantMessage | StreamingAssistantMessage
     final_message_chain: list[Message]
 
@@ -95,7 +96,7 @@ class Agent(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    system_prompt: str | None
+    system_prompt: str | list[Content] | None
     llm: BaseLLM
     memory: BaseMemory = Field(
         default_factory=lambda: UnlimitedMemory(chat_history=InMemoryChatHistory())
@@ -103,7 +104,7 @@ class Agent(BaseModel):
     tools: list[BaseTool] = Field(default_factory=list)
     max_number_iterations: int | None = 30
 
-    async def submit_message(self, input_message: str) -> AgentRun:
+    async def submit_message(self, input_message: str | list[Content]) -> AgentRun:
         agent_run_intermediate = await self._submit_message_helper(
             input_message, self.llm.run
         )
@@ -161,7 +162,7 @@ class Agent(BaseModel):
         return agent_run
 
     async def _submit_message_helper(
-        self, input_message: str, run_func: LLMRunFunc
+        self, input_message: str | list[Content], run_func: LLMRunFunc
     ) -> AgentRunIntermediate:
         conversation_history = await self.memory.get_messages()
         messages: list[Message] = (
