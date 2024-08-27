@@ -56,7 +56,7 @@ class StreamingAgentRun(BaseModel):
     number_llm_invocations: int
     total_time_till_stream_start: float
     llm_time_till_stream_start: float
-    input_message: str
+    input_message: str | list[Content]
     final_response_stream: AsyncIterator[str]
     final_message_chain: list[Message]
 
@@ -88,8 +88,7 @@ class AgentRunIntermediate(BaseModel):
 class LLMRunFunc(Protocol):
     async def __call__(
         self, messages: list[Message], tools: list[BaseTool]
-    ) -> LLMResponse:
-        ...
+    ) -> LLMResponse: ...
 
 
 class Agent(BaseModel):
@@ -135,7 +134,7 @@ class Agent(BaseModel):
 
     async def submit_message_and_stream_response(
         self,
-        input_message: str,
+        input_message: str | list[Content],
     ) -> StreamingAgentRun:
         async def run_func(
             messages: list[Message], tools: list[BaseTool]
