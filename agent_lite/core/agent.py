@@ -88,7 +88,8 @@ class AgentRunIntermediate(BaseModel):
 class LLMRunFunc(Protocol):
     async def __call__(
         self, messages: list[Message], tools: list[BaseTool]
-    ) -> LLMResponse: ...
+    ) -> LLMResponse:
+        ...
 
 
 class Agent(BaseModel):

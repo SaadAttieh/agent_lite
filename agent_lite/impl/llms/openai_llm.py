@@ -253,7 +253,7 @@ class OpenAILLM(BaseLLM):
         return {
             "type": "image_url",
             "image_url": {
-                "url": inner_content.encoded_data,
+                "url": f"data:{inner_content.file_type.value};{inner_content.encoding_type()},{inner_content.encoded_data}",
             },
         }
 
