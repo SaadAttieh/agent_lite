@@ -3,7 +3,7 @@ import time
 from typing import AsyncIterator, Protocol
 
 from langfuse.decorators import langfuse_context, observe
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
 from agent_lite.core import (
@@ -93,12 +93,6 @@ class LLMRunFunc(Protocol):
         ...
 
 
-class LangfuseConfig(BaseModel):
-    secret_key: str
-    public_key: str
-    host: str
-
-
 class Agent(BaseModel):
     class Config:
         arbitrary_types_allowed = True
@@ -110,20 +104,6 @@ class Agent(BaseModel):
     )
     tools: list[BaseTool] = Field(default_factory=list)
     max_number_iterations: int | None = 30
-    langfuse_config: LangfuseConfig | None = None
-
-    @model_validator(mode="after")
-    def post_init(self) -> "Agent":
-        if self.langfuse_config is not None:
-            langfuse_context.configure(
-                secret_key=self.langfuse_config.secret_key,
-                public_key=self.langfuse_config.public_key,
-                host=self.langfuse_config.host,
-                enabled=True,
-            )
-        else:
-            langfuse_context.configure(enabled=False)
-        return self
 
     async def submit_message(self, input_message: str | list[Content]) -> AgentRun:
         # delegate to _submit_message only because the @observe decorator seems to be breaking the function type
