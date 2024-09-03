@@ -2,7 +2,8 @@ import json
 import time
 from typing import AsyncIterator, Protocol
 
-from pydantic import BaseModel, Field
+from langfuse.decorators import langfuse_context, observe
+from pydantic import BaseModel, Field, model_validator
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
 from agent_lite.core import (
@@ -92,6 +93,12 @@ class LLMRunFunc(Protocol):
         ...
 
 
+class LangfuseConfig(BaseModel):
+    secret_key: str
+    public_key: str
+    host: str
+
+
 class Agent(BaseModel):
     class Config:
         arbitrary_types_allowed = True
@@ -103,8 +110,24 @@ class Agent(BaseModel):
     )
     tools: list[BaseTool] = Field(default_factory=list)
     max_number_iterations: int | None = 30
+    langfuse_config: LangfuseConfig | None = None
 
+    @model_validator(mode="after")
+    def post_init(self) -> "Agent":
+        if self.langfuse_config is not None:
+            langfuse_context.configure(
+                secret_key=self.langfuse_config.secret_key,
+                public_key=self.langfuse_config.public_key,
+                host=self.langfuse_config.host,
+                enabled=True,
+            )
+        else:
+            langfuse_context.configure(enabled=False)
+        return self
+
+    @observe()
     async def submit_message(self, input_message: str | list[Content]) -> AgentRun:
+        langfuse_context.update_current_observation(name="agent_lite_submit_message")
         agent_run_intermediate = await self._submit_message_helper(
             input_message, self.llm.run
         )
@@ -267,6 +290,7 @@ class Agent(BaseModel):
             yield response
         await self.memory.add_message(AssistantMessage(content=message.content))
 
+    @observe()
     async def find_and_invoke_tool(
         self, tool_name: str, tool_params_as_json: str
     ) -> str | ToolDirectResponse | StreamingToolDirectResponse:
@@ -278,7 +302,14 @@ class Agent(BaseModel):
             parsed_params = args_schema.parse_raw(tool_params_as_json)
         except Exception as e:
             return f"Error parsing parameters for tool '{tool_name}': {e}"
+        langfuse_context.update_current_observation(
+            name=f"{tool_impl.__class__}._arun",
+            input=parsed_params,
+        )
+
         tool_response = await tool_impl._arun(parsed_params)
+        langfuse_context.update_current_observation(output=tool_response)
+
         if (
             isinstance(tool_response, StreamingToolDirectResponse)
             or isinstance(tool_response, ToolDirectResponse)

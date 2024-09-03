@@ -11,6 +11,7 @@ from anthropic.types.beta.prompt_caching import (
     PromptCachingBetaTextBlockParam,
     PromptCachingBetaToolParam,
 )
+from langfuse.decorators import langfuse_context, observe
 
 from agent_lite.core import (
     AssistantMessage,
@@ -45,6 +46,7 @@ class AnthropicLLM(BaseLLM):
             api_key=self.api_key,
         )
 
+    @observe(as_type="generation")
     async def run(self, messages: list[Message], tools: list[BaseTool]) -> LLMResponse:
         # system message
         system: Union[
@@ -65,21 +67,35 @@ class AnthropicLLM(BaseLLM):
         # Messages:
         encoded_messages = AnthropicLLM.encode_messages(messages)
 
+        langfuse_context.update_current_observation(
+            name=f"{self.__class__}.run",
+            input=encoded_messages,
+            model=self.model,
+            metadata=dict(
+                max_tokens=4096,
+                tools=encoded_tools,
+                system=system or NOT_GIVEN,
+            ),
+        )
+
         response = await self.client.beta.prompt_caching.messages.create(
-            max_tokens=4096,
             model=self.model,
             messages=encoded_messages,
+            max_tokens=4096,
             tools=encoded_tools,
             system=system or NOT_GIVEN,
         )
-        llm_usage = (
-            LLMUsage(
-                prompt_tokens=response.usage.input_tokens,
-                completion_tokens=response.usage.output_tokens,
-            )
-            if response.usage
-            else None
+        llm_usage = LLMUsage(
+            prompt_tokens=response.usage.input_tokens,
+            completion_tokens=response.usage.output_tokens,
         )
+        langfuse_context.update_current_observation(
+            usage={
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+            }
+        )
+
         message = response.content[-1]
 
         if message.type == "tool_use":

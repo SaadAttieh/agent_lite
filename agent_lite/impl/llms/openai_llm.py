@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import AsyncIterator, Iterable, Union
 
+from langfuse.decorators import langfuse_context, observe
 from openai import AsyncOpenAI
 from openai._types import NOT_GIVEN
 from openai.types.chat import (
@@ -41,9 +42,24 @@ class OpenAILLM(BaseLLM):
     def __post_init__(self) -> None:
         self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
 
+    @observe(as_type="generation")
     async def run(self, messages: list[Message], tools: list[BaseTool]) -> LLMResponse:
         encoded_messages = OpenAILLM.encode_messages(messages)
         encoded_tools = OpenAILLM.encode_tools(tools)
+        langfuse_context.update_current_observation(
+            name=f"{self.__class__}.run",
+            input=encoded_messages,
+            model=self.model,
+            metadata=dict(
+                tools=encoded_tools or NOT_GIVEN,
+                response_format=(
+                    {"type": "json_object"}
+                    if self.encourage_json_response
+                    else NOT_GIVEN
+                ),
+            ),
+        )
+
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=encoded_messages,
@@ -60,6 +76,14 @@ class OpenAILLM(BaseLLM):
             if response.usage
             else None
         )
+        if response.usage:
+            langfuse_context.update_current_observation(
+                usage={
+                    "input": response.usage.prompt_tokens,
+                    "output": response.usage.completion_tokens,
+                }
+            )
+
         assistant_message = response.choices[0].message
         if not assistant_message.tool_calls:
             assert assistant_message.content is not None
