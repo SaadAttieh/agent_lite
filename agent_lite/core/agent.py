@@ -125,8 +125,12 @@ class Agent(BaseModel):
             langfuse_context.configure(enabled=False)
         return self
 
-    @observe()
     async def submit_message(self, input_message: str | list[Content]) -> AgentRun:
+        # delegate to _submit_message only because the @observe decorator seems to be breaking the function type
+        return await self._submit_message(input_message)
+
+    @observe()
+    async def _submit_message(self, input_message: str | list[Content]) -> AgentRun:
         langfuse_context.update_current_observation(name="agent_lite_submit_message")
         agent_run_intermediate = await self._submit_message_helper(
             input_message, self.llm.run
