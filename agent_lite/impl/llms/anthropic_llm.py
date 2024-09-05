@@ -90,10 +90,11 @@ class AnthropicLLM(BaseLLM):
             completion_tokens=response.usage.output_tokens,
         )
         langfuse_context.update_current_observation(
+            output=response,
             usage={
                 "input": response.usage.input_tokens,
                 "output": response.usage.output_tokens,
-            }
+            },
         )
 
         message = response.content[-1]

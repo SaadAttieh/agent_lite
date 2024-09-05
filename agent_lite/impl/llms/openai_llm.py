@@ -76,6 +76,7 @@ class OpenAILLM(BaseLLM):
             if response.usage
             else None
         )
+        langfuse_context.update_current_observation(output=response)
         if response.usage:
             langfuse_context.update_current_observation(
                 usage={
