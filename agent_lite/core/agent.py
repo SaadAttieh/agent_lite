@@ -14,6 +14,7 @@ from agent_lite.core import (
     Content,
     InMemoryChatHistory,
     LLMResponse,
+    LLMUsage,
     Message,
     StreamingAssistantMessage,
     StreamingToolDirectResponse,
@@ -36,6 +37,8 @@ class AgentRun(BaseModel):
     input_message: str | list[Content]
     final_response: str
     final_message_chain: list[Message]
+    cache_read_tokens: int
+    cache_write_tokens: int
 
     def __str__(self) -> str:
         return f"""AgentRun:
@@ -46,6 +49,8 @@ class AgentRun(BaseModel):
     number_llm_invocations: {self.number_llm_invocations}
     total_time: {self.total_time}
     llm_time: {self.llm_time}
+    cache_read_tokens: {self.cache_read_tokens}
+    cache_write_tokens: {self.cache_write_tokens}
 """
 
 
@@ -84,6 +89,8 @@ class AgentRunIntermediate(BaseModel):
     input_message: str | list[Content]
     final_response: AssistantMessage | StreamingAssistantMessage
     final_message_chain: list[Message]
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class LLMRunFunc(Protocol):
@@ -135,6 +142,8 @@ class Agent(BaseModel):
             input_message=input_message,
             final_response=final_response,
             final_message_chain=agent_run_intermediate.final_message_chain,
+            cache_read_tokens=agent_run_intermediate.cache_read_tokens,
+            cache_write_tokens=agent_run_intermediate.cache_write_tokens,
         )
         print("Run complete")
         print(agent_run)
@@ -179,7 +188,12 @@ class Agent(BaseModel):
         )
 
         print("Starting run")
-        prompt_tokens, completion_tokens = 0, 0
+        total_llm_usage = LLMUsage(
+            prompt_tokens=0,
+            completion_tokens=0,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
         total_start_time = time.time()
         cumulative_llm_time: float = 0
         number_iterations = 0
@@ -205,14 +219,15 @@ class Agent(BaseModel):
             cumulative_llm_time += t2 - llm_start_time
             total_time = t2 - total_start_time
             if llm_usage:
-                prompt_tokens += llm_usage.prompt_tokens
-                completion_tokens += llm_usage.completion_tokens
+                total_llm_usage = total_llm_usage + llm_usage
 
             if isinstance(llm_response, AssistantMessage):
                 return AgentRunIntermediate(
                     model=self.llm.model,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
+                    prompt_tokens=total_llm_usage.prompt_tokens,
+                    completion_tokens=total_llm_usage.completion_tokens,
+                    cache_read_tokens=total_llm_usage.cache_read_tokens,
+                    cache_write_tokens=total_llm_usage.cache_write_tokens,
                     input_message=input_message,
                     final_response=llm_response,
                     final_message_chain=messages,
@@ -238,8 +253,10 @@ class Agent(BaseModel):
                     messages.append(tool_response)
                     return AgentRunIntermediate(
                         model=self.llm.model,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
+                        prompt_tokens=total_llm_usage.prompt_tokens,
+                        completion_tokens=total_llm_usage.completion_tokens,
+                        cache_read_tokens=total_llm_usage.cache_read_tokens,
+                        cache_write_tokens=total_llm_usage.cache_write_tokens,
                         input_message=input_message,
                         final_response=tool_response,
                         final_message_chain=messages,

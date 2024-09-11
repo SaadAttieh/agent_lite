@@ -149,6 +149,18 @@ class StreamingToolDirectResponse(StreamingAssistantMessage):
 class LLMUsage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    def __add__(self, other):
+        if not isinstance(other, LLMUsage):
+            return NotImplemented
+        return LLMUsage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
+        )
 
 
 LLMResponse = tuple[

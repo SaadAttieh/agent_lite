@@ -88,6 +88,8 @@ class AnthropicLLM(BaseLLM):
         llm_usage = LLMUsage(
             prompt_tokens=response.usage.input_tokens,
             completion_tokens=response.usage.output_tokens,
+            cache_read_tokens=response.usage.cache_read_input_tokens or 0,
+            cache_write_tokens=response.usage.cache_creation_input_tokens or 0,
         )
         langfuse_context.update_current_observation(
             output=response,
