@@ -4,7 +4,7 @@ from typing import AsyncIterator, Protocol
 
 from langfuse.decorators import langfuse_context, observe
 from pydantic import BaseModel, Field
-from tenacity import Retrying, stop_after_attempt, wait_fixed
+from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed
 
 from agent_lite.core import (
     AssistantMessage,
@@ -96,8 +96,7 @@ class AgentRunIntermediate(BaseModel):
 class LLMRunFunc(Protocol):
     async def __call__(
         self, messages: list[Message], tools: list[BaseTool]
-    ) -> LLMResponse:
-        ...
+    ) -> LLMResponse: ...
 
 
 class Agent(BaseModel):
@@ -204,7 +203,7 @@ class Agent(BaseModel):
             number_iterations += 1
             llm_start_time = time.time()
             # use tenacity
-            for attempt in Retrying(
+            async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(5),
                 wait=wait_fixed(1),
             ):
