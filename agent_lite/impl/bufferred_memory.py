@@ -111,7 +111,7 @@ class BufferedMemoryWithSummarizer(BaseMemory):
 -----------------
 End of conversation to summarize.
 """
-        return (await agent.submit_message(input)).final_response
+        return (await agent.submit_message(input)).final_response or ""
 
     async def _maybe_summarize(self) -> bool:
         messages = await self.chat_history.get_messages()

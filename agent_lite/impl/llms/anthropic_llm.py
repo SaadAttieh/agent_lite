@@ -49,9 +49,9 @@ class AnthropicLLM(BaseLLM):
     @observe(as_type="generation")
     async def run(self, messages: list[Message], tools: list[BaseTool]) -> LLMResponse:
         # system message
-        system: Union[str, Iterable[Union[PromptCachingBetaTextBlockParam]], None] = (
-            None
-        )
+        system: Union[
+            str, Iterable[Union[PromptCachingBetaTextBlockParam]], None
+        ] = None
         first_message_index = 0
         if isinstance(messages[0], SystemMessage):
             system = AnthropicLLM.make_anthropic_system_message(messages[0])
@@ -99,9 +99,8 @@ class AnthropicLLM(BaseLLM):
             },
         )
         if len(response.content) == 0:
-            raise ValueError(
-                "The model did not respond with any content." + str(response)
-            )
+            return (None, llm_usage)
+
         message = response.content[-1]
 
         if message.type == "tool_use":
@@ -159,9 +158,9 @@ class AnthropicLLM(BaseLLM):
                 "Anthropic LLM does not support tool invokations in stream mode. This is a limitation of the Anthropic API. Anthropic state that this is being worked on:\nhttps://docs.anthropic.com/claude/docs/tool-use"
             )
         # system message
-        system: Union[str, Iterable[Union[PromptCachingBetaTextBlockParam]], None] = (
-            None
-        )
+        system: Union[
+            str, Iterable[Union[PromptCachingBetaTextBlockParam]], None
+        ] = None
         first_message_index = 0
         if isinstance(messages[0], SystemMessage):
             system = AnthropicLLM.make_anthropic_system_message(messages[0])
@@ -221,7 +220,7 @@ class AnthropicLLM(BaseLLM):
                     ),
                 }
             elif isinstance(message, AssistantMessage):
-                return {"role": "assistant", "content": message.content}
+                return {"role": "assistant", "content": message.content or []}
             elif isinstance(message, ToolInvokationMessage):
                 return {
                     "role": "assistant",

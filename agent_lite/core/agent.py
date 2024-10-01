@@ -35,7 +35,7 @@ class AgentRun(BaseModel):
     total_time: float
     llm_time: float
     input_message: str | list[Content]
-    final_response: str
+    final_response: str | None
     final_message_chain: list[Message]
     cache_read_tokens: int
     cache_write_tokens: int
@@ -87,7 +87,7 @@ class AgentRunIntermediate(BaseModel):
     total_time: float
     llm_time: float
     input_message: str | list[Content]
-    final_response: AssistantMessage | StreamingAssistantMessage
+    final_response: AssistantMessage | StreamingAssistantMessage | None
     final_message_chain: list[Message]
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
@@ -96,7 +96,8 @@ class AgentRunIntermediate(BaseModel):
 class LLMRunFunc(Protocol):
     async def __call__(
         self, messages: list[Message], tools: list[BaseTool]
-    ) -> LLMResponse: ...
+    ) -> LLMResponse:
+        ...
 
 
 class Agent(BaseModel):
@@ -123,13 +124,17 @@ class Agent(BaseModel):
         )
         await self.memory.add_message(UserMessage(content=input_message))
         if isinstance(agent_run_intermediate.final_response, StreamingAssistantMessage):
-            final_response = (
+            final_response: str | None = (
                 await agent_run_intermediate.final_response.consume_stream()
             )
         else:
-            final_response = agent_run_intermediate.final_response.content
-
-        await self.memory.add_message(AssistantMessage(content=final_response))
+            final_response = (
+                agent_run_intermediate.final_response.content
+                if agent_run_intermediate.final_response
+                else None
+            )
+        if final_response:
+            await self.memory.add_message(AssistantMessage(content=final_response))
 
         agent_run = AgentRun(
             model=agent_run_intermediate.model,
@@ -187,13 +192,8 @@ class Agent(BaseModel):
         )
 
         print("Starting run")
-        total_llm_usage = LLMUsage(
-            prompt_tokens=0,
-            completion_tokens=0,
-            cache_read_tokens=0,
-            cache_write_tokens=0,
-        )
-        total_start_time = time.time()
+        total_llm_usage = LLMUsage()
+        agent_run_start_time = time.time()
         cumulative_llm_time: float = 0
         number_iterations = 0
         while (
@@ -212,15 +212,17 @@ class Agent(BaseModel):
                         messages=messages,
                         tools=self.tools,
                     )
-            messages.append(llm_response)
-
             t2 = time.time()
             cumulative_llm_time += t2 - llm_start_time
-            total_time = t2 - total_start_time
+            total_time = t2 - agent_run_start_time
+
             if llm_usage:
                 total_llm_usage = total_llm_usage + llm_usage
 
-            if isinstance(llm_response, AssistantMessage):
+            if llm_response:
+                messages.append(llm_response)
+
+            if llm_response is None or isinstance(llm_response, AssistantMessage):
                 return AgentRunIntermediate(
                     model=self.llm.model,
                     prompt_tokens=total_llm_usage.prompt_tokens,
@@ -275,12 +277,15 @@ class Agent(BaseModel):
         raise Exception(f"Max iterations reached: {self.max_number_iterations}")
 
     async def stream_then_save(
-        self, message: StreamingAssistantMessage | AssistantMessage
+        self, message: StreamingAssistantMessage | AssistantMessage | None
     ) -> AsyncIterator[str]:
-        async def single_yield(value: str) -> AsyncIterator[str]:
-            yield value
+        async def single_yield(value: str | None) -> AsyncIterator[str]:
+            if value is not None:
+                yield value
 
-        if type(message) == AssistantMessage:
+        if message is None:
+            return
+        elif type(message) == AssistantMessage:
             message = StreamingAssistantMessage(
                 internal_stream=single_yield(message.content)
             )

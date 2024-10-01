@@ -147,8 +147,8 @@ class StreamingToolDirectResponse(StreamingAssistantMessage):
 
 
 class LLMUsage(BaseModel):
-    prompt_tokens: int
-    completion_tokens: int
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
 
@@ -164,7 +164,7 @@ class LLMUsage(BaseModel):
 
 
 LLMResponse = tuple[
-    AssistantMessage | ToolInvokationMessage | StreamingAssistantMessage,
+    AssistantMessage | ToolInvokationMessage | StreamingAssistantMessage | None,
     LLMUsage | None,
 ]
 
