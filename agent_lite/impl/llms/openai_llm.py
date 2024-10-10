@@ -1,6 +1,10 @@
+import asyncio
+import base64
+import json
 from dataclasses import dataclass
 from typing import AsyncIterator, Iterable, Union
 
+import websockets
 from langfuse.decorators import langfuse_context, observe
 from openai import AsyncOpenAI
 from openai._types import NOT_GIVEN
@@ -15,6 +19,7 @@ from openai.types.chat import (
 
 from agent_lite.core import (
     AssistantMessage,
+    AudioRealtimeEvent,
     BaseLLM,
     BaseTool,
     Content,
@@ -160,6 +165,106 @@ class OpenAILLM(BaseLLM):
                     yield message.choices[0].delta.content
 
         return StreamingAssistantMessage(internal_stream=stream_messages())
+
+    async def run_realtime_voice(
+        self,
+        *,
+        system_prompt: str | None,
+        input_audio_format: str,
+        output_audio_format: str,
+        voice: str,
+        temperature: float,
+        tools: list[BaseTool],
+        input_stream: AsyncIterator[AudioRealtimeEvent | ToolResponseMessage],
+    ) -> AsyncIterator[AudioRealtimeEvent | ToolInvokationMessage]:
+        session_update = {
+            "type": "session.update",
+            "session": {
+                "turn_detection": {"type": "server_vad"},
+                "input_audio_format": input_audio_format,
+                "output_audio_format": output_audio_format,
+                "voice": voice,
+                "instructions": system_prompt,
+                "modalities": ["text", "audio"],
+                "temperature": temperature,
+                "tools": [t["function"] for t in OpenAILLM.encode_tools(tools)],
+            },
+        }
+
+        async with websockets.connect(
+            f"wss://api.openai.com/v1/realtime?model={self.model}",
+            extra_headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "OpenAI-Beta": "realtime=v1",
+            },
+        ) as openai_ws:
+            await openai_ws.send(json.dumps(session_update))
+            asyncio.create_task(
+                OpenAILLM._stream_realtime_to_openai(input_stream, openai_ws)
+            )
+            async for response in OpenAILLM.parse_openai_realtime_response(openai_ws):
+                yield response
+
+    @staticmethod
+    async def parse_openai_realtime_response(
+        openai_ws: websockets.WebSocketClientProtocol,
+    ) -> AsyncIterator[AudioRealtimeEvent | ToolInvokationMessage]:
+        async for openai_message in openai_ws:
+            response = json.loads(openai_message)
+
+            if response["type"] == "response.function_call_arguments.done":
+                call_id = response["call_id"]
+                tool_params = response["arguments"]
+                yield ToolInvokationMessage(
+                    tools=[
+                        ToolInvokation(
+                            id=call_id, tool_name="", tool_params=tool_params
+                        )
+                    ]
+                )
+            elif response["type"] == "response.audio.delta" and response.get("delta"):
+                try:
+                    audio_payload = base64.b64encode(
+                        base64.b64decode(response["delta"])
+                    ).decode("utf-8")
+                    yield AudioRealtimeEvent.from_base64(audio_payload)
+                except Exception as e:
+                    print(f"Error processing audio data: {e}")
+
+    @staticmethod
+    async def _stream_realtime_to_openai(
+        message_stream: AsyncIterator[AudioRealtimeEvent | ToolResponseMessage],
+        openai_ws: websockets.WebSocketClientProtocol,
+    ) -> None:
+        async for event in message_stream:
+            if not openai_ws.open:
+                print("Found openai_ws closed.")
+                break
+            if isinstance(event, ToolResponseMessage):
+                tool_response = {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "status": "completed",
+                        "role": "user",
+                        "content": [
+                            {
+                                "call_id": event.tool_invokation_id,
+                                "output": event.content,
+                            }
+                        ],
+                    },
+                }
+                await openai_ws.send(json.dumps(tool_response))
+                continue
+
+            audio_append = {
+                "type": "input_audio_buffer.append",
+                "audio": event.as_base64(),
+            }
+            await openai_ws.send(json.dumps(audio_append))
+        if openai_ws.open:
+            await openai_ws.close()
 
     @staticmethod
     def encode_messages(

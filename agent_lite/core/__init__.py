@@ -222,6 +222,17 @@ class BaseTool(BaseModel):
         pass
 
 
+class AudioRealtimeEvent(BaseModel):
+    audio: str
+
+    def as_base64(self) -> str:
+        return self.audio
+
+    @staticmethod
+    def from_base64(audio: str) -> "AudioRealtimeEvent":
+        return AudioRealtimeEvent(audio=audio)
+
+
 @dataclass
 class BaseLLM(ABC):
     model: str
@@ -230,10 +241,22 @@ class BaseLLM(ABC):
     async def run(self, messages: list[Message], tools: list[BaseTool]) -> LLMResponse:
         pass
 
-    # define abstract method run_stream with default to raise nontimplementederror
     async def run_stream(
         self, messages: list[Message], tools: list[BaseTool]
     ) -> StreamingLLMResponse:
+        raise NotImplementedError()
+
+    def run_realtime_voice(
+        self,
+        *,
+        system_prompt: str | None,
+        input_audio_format: str,
+        output_audio_format: str,
+        voice: str,
+        temperature: float,
+        tools: list[BaseTool],
+        input_stream: AsyncIterator[AudioRealtimeEvent | ToolResponseMessage],
+    ) -> AsyncIterator[AudioRealtimeEvent | ToolInvokationMessage]:
         raise NotImplementedError()
 
 

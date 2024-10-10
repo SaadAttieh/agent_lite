@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import AsyncIterator, Protocol
@@ -6,8 +7,10 @@ from langfuse.decorators import langfuse_context, observe
 from pydantic import BaseModel, Field
 from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed
 
+from agent_lite.async_deque import AsyncDeque
 from agent_lite.core import (
     AssistantMessage,
+    AudioRealtimeEvent,
     BaseLLM,
     BaseMemory,
     BaseTool,
@@ -19,6 +22,7 @@ from agent_lite.core import (
     StreamingAssistantMessage,
     StreamingToolDirectResponse,
     SystemMessage,
+    TextContent,
     ToolDirectResponse,
     ToolInvokationMessage,
     ToolResponseMessage,
@@ -322,3 +326,67 @@ class Agent(BaseModel):
         ):
             return tool_response
         return json.dumps(tool_response)
+
+    async def run_realtime(
+        self,
+        *,
+        audio_input_stream: AsyncIterator[AudioRealtimeEvent],
+        voice: str,
+        input_audio_format: str,
+        output_audio_format: str,
+        temperature: float = 0.8,
+    ) -> AsyncIterator[AudioRealtimeEvent]:
+        llm_message_queue: AsyncDeque[
+            AudioRealtimeEvent | ToolResponseMessage
+        ] = AsyncDeque()
+
+        async def stream_audio_to_queue():
+            async for audio_event in audio_input_stream:
+                await llm_message_queue.put_right(audio_event)
+
+        if isinstance(self.system_prompt, str):
+            system_prompt = self.system_prompt
+        elif isinstance(self.system_prompt, list):
+            assert all(isinstance(c, TextContent) for c in self.system_prompt)
+            system_prompt = "\n".join(
+                c.text for c in self.system_prompt if isinstance(c, TextContent)
+            )
+        else:
+            system_prompt = None
+
+        async def respond_to_tools(response: ToolInvokationMessage):
+            for tool_call in response.tools:
+                tool_response = await self.find_and_invoke_tool(
+                    tool_call.tool_name, tool_call.tool_params
+                )
+                await llm_message_queue.put_right(
+                    ToolResponseMessage(
+                        tool_invokation_id=tool_call.id,
+                        tool_name=tool_call.tool_name,
+                        content=json.dumps(tool_response),
+                    )
+                )
+
+        asyncio.create_task(stream_audio_to_queue())
+        async for response in self.llm.run_realtime_voice(
+            system_prompt=system_prompt,
+            input_audio_format=input_audio_format,
+            output_audio_format=output_audio_format,
+            voice=voice,
+            temperature=temperature,
+            tools=self.tools,
+            input_stream=llm_message_queue,
+        ):
+            if isinstance(response, ToolInvokationMessage):
+                asyncio.create_task(respond_to_tools(response))
+                continue
+            yield response
+
+    async def run_realtime_twilio(
+        self,
+        *,
+        audio_input_stream: AsyncIterator[AudioRealtimeEvent],
+        voice: str,
+        temperature: float = 0.8,
+    ) -> AsyncIterator[AudioRealtimeEvent]:
+        pass
