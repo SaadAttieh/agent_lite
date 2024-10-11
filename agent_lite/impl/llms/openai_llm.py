@@ -19,7 +19,6 @@ from openai.types.chat import (
 
 from agent_lite.core import (
     AssistantMessage,
-    AudioRealtimeEvent,
     BaseLLM,
     BaseTool,
     Content,
@@ -27,6 +26,8 @@ from agent_lite.core import (
     LLMResponse,
     LLMUsage,
     Message,
+    RealtimeAudioBufferClearEvent,
+    RealtimeAudioPayloadEvent,
     StreamingAssistantMessage,
     StreamingLLMResponse,
     SystemMessage,
@@ -175,8 +176,16 @@ class OpenAILLM(BaseLLM):
         voice: str,
         temperature: float,
         tools: list[BaseTool],
-        input_stream: AsyncIterator[AudioRealtimeEvent | ToolResponseMessage],
-    ) -> AsyncIterator[AudioRealtimeEvent | ToolInvokationMessage]:
+        input_stream: AsyncIterator[RealtimeAudioPayloadEvent | ToolResponseMessage],
+    ) -> AsyncIterator[
+        RealtimeAudioPayloadEvent
+        | ToolInvokationMessage
+        | RealtimeAudioBufferClearEvent
+    ]:
+        encoded_tools = [
+            dict(t["function"], **{"type": "function"})
+            for t in OpenAILLM.encode_tools(tools)
+        ]
         session_update = {
             "type": "session.update",
             "session": {
@@ -187,10 +196,10 @@ class OpenAILLM(BaseLLM):
                 "instructions": system_prompt,
                 "modalities": ["text", "audio"],
                 "temperature": temperature,
-                "tools": [t["function"] for t in OpenAILLM.encode_tools(tools)],
+                "tools": encoded_tools,
             },
         }
-
+        print("Connecting to OpenAI Realtime API")
         async with websockets.connect(
             f"wss://api.openai.com/v1/realtime?model={self.model}",
             extra_headers={
@@ -202,23 +211,33 @@ class OpenAILLM(BaseLLM):
             asyncio.create_task(
                 OpenAILLM._stream_realtime_to_openai(input_stream, openai_ws)
             )
-            async for response in OpenAILLM.parse_openai_realtime_response(openai_ws):
+            async for response in OpenAILLM._read_openai_realtime_stream(openai_ws):
                 yield response
 
     @staticmethod
-    async def parse_openai_realtime_response(
+    async def _read_openai_realtime_stream(
         openai_ws: websockets.WebSocketClientProtocol,
-    ) -> AsyncIterator[AudioRealtimeEvent | ToolInvokationMessage]:
+    ) -> AsyncIterator[
+        RealtimeAudioPayloadEvent
+        | ToolInvokationMessage
+        | RealtimeAudioBufferClearEvent
+    ]:
         async for openai_message in openai_ws:
             response = json.loads(openai_message)
-
-            if response["type"] == "response.function_call_arguments.done":
+            if response["type"] == "error":
+                print(
+                    f"Error from OpenAI Realtime API: {json.dumps(response, indent=2)}"
+                )
+            elif response["type"] == "input_audio_buffer.speech_started":
+                yield RealtimeAudioBufferClearEvent()
+            elif response["type"] == "response.function_call_arguments.done":
                 call_id = response["call_id"]
                 tool_params = response["arguments"]
+                tool_name = response["name"]
                 yield ToolInvokationMessage(
                     tools=[
                         ToolInvokation(
-                            id=call_id, tool_name="", tool_params=tool_params
+                            id=call_id, tool_name=tool_name, tool_params=tool_params
                         )
                     ]
                 )
@@ -227,42 +246,50 @@ class OpenAILLM(BaseLLM):
                     audio_payload = base64.b64encode(
                         base64.b64decode(response["delta"])
                     ).decode("utf-8")
-                    yield AudioRealtimeEvent.from_base64(audio_payload)
+                    yield RealtimeAudioPayloadEvent.from_base64(audio_payload)
                 except Exception as e:
                     print(f"Error processing audio data: {e}")
 
     @staticmethod
     async def _stream_realtime_to_openai(
-        message_stream: AsyncIterator[AudioRealtimeEvent | ToolResponseMessage],
+        message_stream: AsyncIterator[RealtimeAudioPayloadEvent | ToolResponseMessage],
         openai_ws: websockets.WebSocketClientProtocol,
     ) -> None:
-        async for event in message_stream:
-            if not openai_ws.open:
-                print("Found openai_ws closed.")
-                break
-            if isinstance(event, ToolResponseMessage):
-                tool_response = {
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "function_call_output",
-                        "status": "completed",
-                        "role": "user",
-                        "content": [
-                            {
-                                "call_id": event.tool_invokation_id,
-                                "output": event.content,
-                            }
-                        ],
-                    },
-                }
-                await openai_ws.send(json.dumps(tool_response))
-                continue
+        print("Streaming audio to OpenAI Realtime API")
 
-            audio_append = {
-                "type": "input_audio_buffer.append",
-                "audio": event.as_base64(),
-            }
-            await openai_ws.send(json.dumps(audio_append))
+        try:
+            async for event in message_stream:
+                if not openai_ws.open:
+                    print("Found openai_ws closed.")
+                    break
+                if isinstance(event, ToolResponseMessage):
+                    print("Sending tool response to OpenAI")
+                    tool_response = {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": event.tool_invokation_id,
+                            "output": event.content,
+                        },
+                    }
+                    await openai_ws.send(json.dumps(tool_response))
+                    create_event = {
+                        "type": "response.create",
+                        "response": {
+                            "modalities": ["text", "audio"],
+                        },
+                    }
+                    await openai_ws.send(json.dumps(create_event))
+                    continue
+
+                audio_append = {
+                    "type": "input_audio_buffer.append",
+                    "audio": event.as_base64(),
+                }
+                await openai_ws.send(json.dumps(audio_append))
+        except Exception as e:
+            print(f"Error streaming audio to OpenAI: {e}")
+        print("Closing OpenAI Realtime API connection")
         if openai_ws.open:
             await openai_ws.close()
 

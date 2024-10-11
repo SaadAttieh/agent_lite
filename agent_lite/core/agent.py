@@ -10,7 +10,6 @@ from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed
 from agent_lite.async_deque import AsyncDeque
 from agent_lite.core import (
     AssistantMessage,
-    AudioRealtimeEvent,
     BaseLLM,
     BaseMemory,
     BaseTool,
@@ -19,6 +18,8 @@ from agent_lite.core import (
     LLMResponse,
     LLMUsage,
     Message,
+    RealtimeAudioBufferClearEvent,
+    RealtimeAudioPayloadEvent,
     StreamingAssistantMessage,
     StreamingToolDirectResponse,
     SystemMessage,
@@ -330,19 +331,22 @@ class Agent(BaseModel):
     async def run_realtime(
         self,
         *,
-        audio_input_stream: AsyncIterator[AudioRealtimeEvent],
+        audio_input_stream: AsyncIterator[RealtimeAudioPayloadEvent],
         voice: str,
         input_audio_format: str,
         output_audio_format: str,
         temperature: float = 0.8,
-    ) -> AsyncIterator[AudioRealtimeEvent]:
+    ) -> AsyncIterator[RealtimeAudioPayloadEvent | RealtimeAudioBufferClearEvent]:
         llm_message_queue: AsyncDeque[
-            AudioRealtimeEvent | ToolResponseMessage
-        ] = AsyncDeque()
+            RealtimeAudioPayloadEvent | ToolResponseMessage
+        ] = AsyncDeque(timeout=120)
 
         async def stream_audio_to_queue():
-            async for audio_event in audio_input_stream:
-                await llm_message_queue.put_right(audio_event)
+            try:
+                async for audio_event in audio_input_stream:
+                    await llm_message_queue.put_right(audio_event)
+            finally:
+                await llm_message_queue.terminate()
 
         if isinstance(self.system_prompt, str):
             system_prompt = self.system_prompt
@@ -356,9 +360,13 @@ class Agent(BaseModel):
 
         async def respond_to_tools(response: ToolInvokationMessage):
             for tool_call in response.tools:
+                print(
+                    f"Invoking tool: {tool_call.tool_name} with params: {tool_call.tool_params}\n"
+                )
                 tool_response = await self.find_and_invoke_tool(
                     tool_call.tool_name, tool_call.tool_params
                 )
+                print(f"Tool response: {tool_response}\n")
                 await llm_message_queue.put_right(
                     ToolResponseMessage(
                         tool_invokation_id=tool_call.id,
@@ -381,12 +389,3 @@ class Agent(BaseModel):
                 asyncio.create_task(respond_to_tools(response))
                 continue
             yield response
-
-    async def run_realtime_twilio(
-        self,
-        *,
-        audio_input_stream: AsyncIterator[AudioRealtimeEvent],
-        voice: str,
-        temperature: float = 0.8,
-    ) -> AsyncIterator[AudioRealtimeEvent]:
-        pass

@@ -222,15 +222,19 @@ class BaseTool(BaseModel):
         pass
 
 
-class AudioRealtimeEvent(BaseModel):
+class RealtimeAudioPayloadEvent(BaseModel):
     audio: str
 
     def as_base64(self) -> str:
         return self.audio
 
     @staticmethod
-    def from_base64(audio: str) -> "AudioRealtimeEvent":
-        return AudioRealtimeEvent(audio=audio)
+    def from_base64(audio: str) -> "RealtimeAudioPayloadEvent":
+        return RealtimeAudioPayloadEvent(audio=audio)
+
+
+class RealtimeAudioBufferClearEvent(BaseModel):
+    pass
 
 
 @dataclass
@@ -255,8 +259,12 @@ class BaseLLM(ABC):
         voice: str,
         temperature: float,
         tools: list[BaseTool],
-        input_stream: AsyncIterator[AudioRealtimeEvent | ToolResponseMessage],
-    ) -> AsyncIterator[AudioRealtimeEvent | ToolInvokationMessage]:
+        input_stream: AsyncIterator[RealtimeAudioPayloadEvent | ToolResponseMessage],
+    ) -> AsyncIterator[
+        RealtimeAudioPayloadEvent
+        | ToolInvokationMessage
+        | RealtimeAudioBufferClearEvent
+    ]:
         raise NotImplementedError()
 
 
