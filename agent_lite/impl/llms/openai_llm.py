@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import AsyncIterator, Iterable, Union
 
 import websockets
@@ -199,6 +200,7 @@ class OpenAILLM(BaseLLM):
                 "tools": encoded_tools,
             },
         }
+
         print("Connecting to OpenAI Realtime API")
         async with websockets.connect(
             f"wss://api.openai.com/v1/realtime?model={self.model}",
@@ -211,7 +213,8 @@ class OpenAILLM(BaseLLM):
             asyncio.create_task(
                 OpenAILLM._stream_realtime_to_openai(input_stream, openai_ws)
             )
-            async for response in OpenAILLM._read_openai_realtime_stream(openai_ws):
+            openai_stream = OpenAILLM._read_openai_realtime_stream(openai_ws)
+            async for response in openai_stream:
                 yield response
 
     @staticmethod
@@ -222,6 +225,8 @@ class OpenAILLM(BaseLLM):
         | ToolInvokationMessage
         | RealtimeAudioBufferClearEvent
     ]:
+        upcoming_audio_buffer: list[AudioPlayTrack] = []
+
         async for openai_message in openai_ws:
             response = json.loads(openai_message)
             if response["type"] == "error":
@@ -229,6 +234,23 @@ class OpenAILLM(BaseLLM):
                     f"Error from OpenAI Realtime API: {json.dumps(response, indent=2)}"
                 )
             elif response["type"] == "input_audio_buffer.speech_started":
+                now = datetime.now()
+                event = next(
+                    (e for e in upcoming_audio_buffer if e.estimated_end_time() > now),
+                    None,
+                )
+
+                if event is not None:
+                    truncate_event = {
+                        "type": "conversation.item.truncate",
+                        "item_id": event.item_id,
+                        "content_index": 0,
+                        "audio_end_ms": int(
+                            (now - event.estimated_start_time).total_seconds() * 1000
+                        ),
+                    }
+                    await openai_ws.send(json.dumps(truncate_event))
+                    upcoming_audio_buffer.clear()
                 yield RealtimeAudioBufferClearEvent()
             elif response["type"] == "response.function_call_arguments.done":
                 call_id = response["call_id"]
@@ -246,9 +268,40 @@ class OpenAILLM(BaseLLM):
                     audio_payload = base64.b64encode(
                         base64.b64decode(response["delta"])
                     ).decode("utf-8")
-                    yield RealtimeAudioPayloadEvent.from_base64(audio_payload)
+                    audio_event = RealtimeAudioPayloadEvent.from_base64(audio_payload)
                 except Exception as e:
                     print(f"Error processing audio data: {e}")
+                    continue
+                new_item_id = response.get("item_id")
+                now = datetime.now()
+                if (
+                    upcoming_audio_buffer
+                    and upcoming_audio_buffer[-1].item_id == new_item_id
+                ):
+                    upcoming_audio_buffer[-1].extend(audio_payload)
+                else:
+                    estimated_audio_start_time = (
+                        max(
+                            upcoming_audio_buffer[-1].estimated_end_time(),
+                            now,
+                        )
+                        if upcoming_audio_buffer
+                        else now
+                    )
+                    upcoming_audio_buffer.append(
+                        AudioPlayTrack.from_mu_law_audio(
+                            item_id=new_item_id,
+                            estimated_start_time=estimated_audio_start_time,
+                            base64_string_audio=audio_payload,
+                        )
+                    )
+                now = datetime.now()
+                while (
+                    upcoming_audio_buffer
+                    and upcoming_audio_buffer[0].estimated_end_time() < now
+                ):
+                    upcoming_audio_buffer.pop(0)
+                yield audio_event
 
     @staticmethod
     async def _stream_realtime_to_openai(
@@ -422,3 +475,35 @@ async def repair_iterator(
         yield first_item
     async for item in iterator:
         yield item
+
+
+@dataclass
+class AudioPlayTrack:
+    item_id: str
+    estimated_start_time: datetime
+    length_seconds: float
+
+    @staticmethod
+    def from_mu_law_audio(
+        item_id: str,
+        estimated_start_time: datetime,
+        base64_string_audio: str,
+        sample_rate: int = 8000,
+    ) -> "AudioPlayTrack":
+        audio_bytes = base64.b64decode(base64_string_audio)
+        num_samples = len(audio_bytes)
+        audio_duration_seconds = num_samples / sample_rate
+        return AudioPlayTrack(
+            item_id=item_id,
+            estimated_start_time=estimated_start_time,
+            length_seconds=audio_duration_seconds,
+        )
+
+    def estimated_end_time(self) -> datetime:
+        return self.estimated_start_time + timedelta(seconds=self.length_seconds)
+
+    def extend(self, base64_string_audio: str, sample_rate: int = 8000) -> None:
+        audio_bytes = base64.b64decode(base64_string_audio)
+        num_samples = len(audio_bytes)
+        audio_duration_seconds = num_samples / sample_rate
+        self.length_seconds += audio_duration_seconds

@@ -229,8 +229,13 @@ class RealtimeAudioPayloadEvent(BaseModel):
         return self.audio
 
     @staticmethod
-    def from_base64(audio: str) -> "RealtimeAudioPayloadEvent":
-        return RealtimeAudioPayloadEvent(audio=audio)
+    def from_base64(
+        audio: str,
+        additional_attributes: dict[str, Any] | None = None,
+    ) -> "RealtimeAudioPayloadEvent":
+        return RealtimeAudioPayloadEvent(
+            audio=audio,
+        )
 
 
 class RealtimeAudioBufferClearEvent(BaseModel):
