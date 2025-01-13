@@ -123,7 +123,7 @@ class Agent(BaseModel):
 
     @observe()
     async def _submit_message(self, input_message: str | list[Content]) -> AgentRun:
-        langfuse_context.update_current_observation(name="agent_lite_submit_message")
+        langfuse_context.update_current_observation(name="agent_lite_submit_message", input=input_message)
         agent_run_intermediate = await self._submit_message_helper(
             input_message, self.llm.run
         )
@@ -290,7 +290,7 @@ class Agent(BaseModel):
 
         if message is None:
             return
-        elif type(message) == AssistantMessage:
+        elif type(message) is AssistantMessage:
             message = StreamingAssistantMessage(
                 internal_stream=single_yield(message.content)
             )
